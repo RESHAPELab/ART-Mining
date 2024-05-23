@@ -1,5 +1,7 @@
 import json
 import csv
+import pickle
+from datetime import datetime
 
 #----------------------------------------------------------------------------------------------------------------------
 # Function to clean text by replacing newline characters with spaces
@@ -63,20 +65,87 @@ def extract_data(pr):
     # ----------------------------------------------------------------------------------------------------------------------
     # Collect files changed across all commits
     files_changed = []
+    commit_hashes = []
+    commits = []
     if pr.get("commits"):
         for commit in pr["commits"].values():
+            commit_date = commit.get("date", "")
+            if commit_date:  # Only parse if commit_date is not empty
+                try:
+                    commit_date_obj = datetime.strptime(commit_date, "%Y-%m-%dT%H:%M:%SZ")
+                    commits.append((commit_date_obj, commit.get("sha", ""), commit.get("author_name", "")))
+                except ValueError:
+                    continue  # Skip this commit if the date is invalid
             files = commit.get("files", {})
-            files_changed.extend(files.get("file_list", []))
-            #----------------------------------------------------------------------------------------------------------------------
-            # Modified to include author_name
-            # Date: 5/15/2024
-            #----------------------------------------------------------------------------------------------------------------------
-            data["author_name"] = clean_text(commit.get("author_name", ""))
+            if files:
+                files_changed.extend(files.get("file_list", []))
+
+    # Sort commits by date (newest to oldest)
+    commits.sort(key=lambda x: x[0], reverse=True)
+    sorted_commit_hashes = [commit[1] for commit in commits]
+    newest_commit_hash = sorted_commit_hashes[0] if sorted_commit_hashes else ""
+
     data["files_changed"] = " | ".join(files_changed)
+    data["commit_hashes"] = " | ".join(sorted_commit_hashes)
+    data["newest_commit_hash"] = newest_commit_hash
+    if commits:
+        data["author_name"] = commits[0][2]  # Use the author of the newest commit
 
     return data
 #----------------------------------------------------------------------------------------------------------------------
 # End of function extract_data
+#----------------------------------------------------------------------------------------------------------------------
+
+#----------------------------------------------------------------------------------------------------------------------
+# Function to convert JSON data to a specified pickle format and save it
+# Input - data: a dictionary containing pull request data
+#         pickle_file: the name of the output pickle file
+# Output - a pickle file with the processed pull request data
+# Written by Adonijah Farner
+# Date: 5/21/2024
+#----------------------------------------------------------------------------------------------------------------------
+def convert_to_pickle(data, pickle_file):
+    """Convert the JSON data to the specified pickle format and save it."""
+    # Create a list to store the converted data
+    pickle_data = []
+
+    for idx, pr_id in enumerate(data.keys(), start=1):
+        try:
+            pr = data[pr_id]
+            row_data = extract_data(pr)
+
+            # Format the data into the desired structure
+            formatted_data = [
+                idx,
+                pr_id,
+                row_data.get("Pull Request", ""),
+                row_data.get("issue text", ""),
+                row_data.get("issue description", ""),
+                row_data.get("pull request text", ""),
+                row_data.get("pull request description", ""),
+                row_data.get("created_at", ""),
+                row_data.get("closed_at", ""),
+                row_data.get("userlogin", ""),
+                row_data.get("author_name", ""),
+                row_data.get("comments", "").split(" | "),
+                row_data.get("files_changed", "").split(" | "),
+                row_data.get("commit_hashes", "").split(" | "),
+                row_data.get("newest_commit_hash", "")
+            ]
+
+            # Append the formatted data to the list
+            pickle_data.append(formatted_data)
+
+        except Exception as e:
+            print(f"Error processing entry {pr_id} for pickle: {e}")
+
+    # Save the list to a pickle file
+    with open(pickle_file, 'wb') as pf:
+        pickle.dump(pickle_data, pf)
+
+    print(f"Data successfully saved to {pickle_file}")
+#----------------------------------------------------------------------------------------------------------------------
+# End of function convert_to_pickle
 #----------------------------------------------------------------------------------------------------------------------
 
 #----------------------------------------------------------------------------------------------------------------------
@@ -98,7 +167,8 @@ with open('jabref_output_V3.csv', 'w', newline='', encoding='utf-8') as f:
     # Write the header
     header = [
         "Row #", "issue", "Pull Request", "issue text", "issue description",
-        "pull request text", "pull request description", "created_at", "closed_at", "userlogin", "author_name", "comments", "files_changed"
+        "pull request text", "pull request description", "created_at", "closed_at", "userlogin", "author_name",
+        "comments", "files_changed", "commit_hashes", "newest_commit_hash"
     ]
     writer.writerow(header)
 
@@ -114,6 +184,9 @@ with open('jabref_output_V3.csv', 'w', newline='', encoding='utf-8') as f:
             print(f"Error processing entry {pr_id}: {e}")
 
     print(f"Processed {idx} entries.")
+
+    # Convert to pickle
+    convert_to_pickle(data, 'datamining.pkl')
 #----------------------------------------------------------------------------------------------------------------------
 # End of main script
 #----------------------------------------------------------------------------------------------------------------------
