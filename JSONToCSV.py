@@ -1,6 +1,9 @@
 import json
 import csv
 import pickle
+import os
+import sys
+import re
 from datetime import datetime
 
 #----------------------------------------------------------------------------------------------------------------------
@@ -18,6 +21,35 @@ def clean_text(text):
 # End of function clean_text
 #----------------------------------------------------------------------------------------------------------------------
 
+# ----------------------------------------------------------------------------------------------------------------------
+# Function to find linked issues in the body text and the keyword used to describe the PR
+# Input - text: The body of a pr
+# Output - two lists, one of issues and another of keywords
+# Written by Adonijah Farner
+# ----------------------------------------------------------------------------------------------------------------------
+def find_linked_issues(body_text):
+    keywords = [
+        "closes", "fixes", "resolves", "in", "solves",
+        "addresses", "completes", "connects", "related to", "reverts",
+        "implements", "references", "incorporates", "updates", "handles",
+        "patches", "adds", "modifies", "enhances", "improves", "adjusts"
+    ]
+    linked_issues = []
+    description_keywords = []
+
+    for keyword in keywords:
+        pattern = fr'{keyword} (#\d+|https://github\.com/\S+/issues/\d+)'
+        matches = re.findall(pattern, body_text, re.IGNORECASE)
+
+        for match in matches:
+            linked_issues.append(match)
+            description_keywords.append(keyword)
+
+    return linked_issues, description_keywords
+# ----------------------------------------------------------------------------------------------------------------------
+# End of function find_linked_issues
+# ----------------------------------------------------------------------------------------------------------------------
+
 #----------------------------------------------------------------------------------------------------------------------
 # Function to extract data from a pull request (PR) dictionary
 # Input - pr: a dictionary representing a pull request
@@ -27,11 +59,14 @@ def clean_text(text):
 # Date: 5/15/2024
 #----------------------------------------------------------------------------------------------------------------------
 def extract_data(pr):
+    body_text = clean_text(pr.get("body", ""))
+    linked_issues, description_keywords = find_linked_issues(body_text)
+
     data = {
         "issue": clean_text(pr.get("title", "")),
         "Pull Request": pr.get("is_pr", ""),
-        "issue text": clean_text(pr.get("title", "")),
-        "issue description": clean_text(pr.get("body", "")),
+        "issue text": " | ".join(linked_issues),
+        "issue description": " | ".join(description_keywords),
         "pull request text": clean_text(pr.get("title", "")),
         "pull request description": clean_text(pr.get("body", "")),
         #----------------------------------------------------------------------------------------------------------------------
@@ -139,6 +174,11 @@ def convert_to_pickle(data, pickle_file):
         except Exception as e:
             print(f"Error processing entry {pr_id} for pickle: {e}")
 
+    # ----------------------------------------------------------------------------------------------------------------------
+    # Modified to have pickle  file name match json file name
+    # Date: 6/10/2024
+    # Modified by Adonijah Farner
+    # ----------------------------------------------------------------------------------------------------------------------
     # Save the list to a pickle file
     with open(pickle_file, 'wb') as pf:
         pickle.dump(pickle_data, pf)
@@ -157,11 +197,33 @@ def convert_to_pickle(data, pickle_file):
 # Date: 5/15/2024
 #----------------------------------------------------------------------------------------------------------------------
 # Read the JSON file
-with open('jabref_output.json', 'r', encoding='utf-8') as f:
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Modified to read file from command line and have pickle and csv file name match json file name
+# Date: 6/10/2024
+# Modified by Adonijah Farner
+# ----------------------------------------------------------------------------------------------------------------------
+
+# Check if the filename is provided
+if len(sys.argv) != 2:
+    print("Usage: python JSONToCSV.py <filename.json>")
+    sys.exit(1)
+
+json_filename = sys.argv[1]
+
+# Extract base name without extension
+base_name = os.path.splitext(os.path.basename(json_filename))[0]
+
+# Construct CSV and pickle file names
+csv_filename = f"{base_name}.csv"
+pickle_filename = f"{base_name}.pkl"
+
+# Read the JSON file
+with open(json_filename, 'r', encoding='utf-8') as f:
     data = json.load(f)
 
 # Open the CSV file for writing
-with open('jabref_output_V3.csv', 'w', newline='', encoding='utf-8') as f:
+with open(csv_filename, 'w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
 
     # Write the header
@@ -186,7 +248,7 @@ with open('jabref_output_V3.csv', 'w', newline='', encoding='utf-8') as f:
     print(f"Processed {idx} entries.")
 
     # Convert to pickle
-    convert_to_pickle(data, 'datamining.pkl')
+    convert_to_pickle(data, pickle_filename)
 #----------------------------------------------------------------------------------------------------------------------
 # End of main script
 #----------------------------------------------------------------------------------------------------------------------
